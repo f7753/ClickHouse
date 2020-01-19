@@ -316,7 +316,7 @@ struct OperationApplier
 
 template <
     typename Op, template <typename, size_t> typename OperationApplierImpl>
-struct OperationApplier<Op, OperationApplierImpl, 1>
+struct OperationApplier<Op, OperationApplierImpl, 0>
 {
     template <bool, typename Columns, typename Result>
     static void NO_INLINE doBatchedApply(Columns &, Result &)
@@ -336,7 +336,7 @@ static void executeForTernaryLogicImpl(ColumnRawPtrs arguments, ColumnWithTypeAn
     const bool has_consts = extractConstColumnsTernary<Op>(arguments, const_3v_value);
 
     /// If the constant value uniquely determines the result, return it.
-    if (has_consts && (arguments.empty() || (Op::isSaturable() && Op::isSaturatedValue(const_3v_value))))
+    if (has_consts && (arguments.empty() || Op::isSaturatedValue(const_3v_value)))
     {
         result_info.column = ColumnConst::create(
             convertFromTernaryData(UInt8Container({const_3v_value}), result_info.type->isNullable()),
@@ -429,12 +429,21 @@ static void basicExecuteImpl(ColumnRawPtrs arguments, ColumnWithTypeAndName & re
     if (arguments.size() == (has_consts ? 1 : 2))
     {
         if (has_consts)
-            FastApplierImpl<Op>::apply(*arguments[0], *col_res, col_res->getData());
+            FastApplierImpl<Op>::apply(*arguments[0], *col_res, vec_res);
         else
-            FastApplierImpl<Op>::apply(*arguments[0], *arguments[1], col_res->getData());
+            FastApplierImpl<Op>::apply(*arguments[0], *arguments[1], vec_res);
 
         result_info.column = std::move(col_res);
         return;
+    }
+
+    UInt8ColumnPtrs uint8_args;
+    if (has_consts)
+    {
+        /// TODO: This will FAIL (or not =) ) after correction b/c we now overwrite
+        /// the result column in the first pass of OperationApplier
+        //  vec_res.assign(input_rows_count, const_val);
+        uint8_args.push_back(col_res.get());
     }
 
     /// Convert all columns to UInt8
